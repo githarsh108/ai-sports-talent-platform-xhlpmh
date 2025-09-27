@@ -1,37 +1,59 @@
+
+import React from 'react';
 import { Text, TouchableOpacity, StyleSheet, ViewStyle, TextStyle } from 'react-native';
-import { colors } from '../styles/commonStyles';
+import { colors, buttonStyles } from '../styles/commonStyles';
 
 interface ButtonProps {
   text: string;
   onPress: () => void;
   style?: ViewStyle | ViewStyle[];
   textStyle?: TextStyle;
+  disabled?: boolean;
+  variant?: 'primary' | 'secondary' | 'outline';
 }
 
-export default function Button({ text, onPress, style, textStyle }: ButtonProps) {
+export default function Button({ 
+  text, 
+  onPress, 
+  style, 
+  textStyle, 
+  disabled = false,
+  variant = 'primary'
+}: ButtonProps) {
+  const getButtonStyle = () => {
+    switch (variant) {
+      case 'secondary':
+        return buttonStyles.secondary;
+      case 'outline':
+        return buttonStyles.outline;
+      default:
+        return buttonStyles.primary;
+    }
+  };
+
+  const getTextStyle = () => {
+    switch (variant) {
+      case 'outline':
+        return buttonStyles.outlineText;
+      default:
+        return buttonStyles.text;
+    }
+  };
+
   return (
-    <TouchableOpacity style={[styles.button, style]} onPress={onPress} activeOpacity={0.7}>
-      <Text style={[styles.buttonText, textStyle]}>{text}</Text>
+    <TouchableOpacity
+      style={[
+        getButtonStyle(),
+        disabled && { opacity: 0.5 },
+        style
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.8}
+    >
+      <Text style={[getTextStyle(), textStyle]}>
+        {text}
+      </Text>
     </TouchableOpacity>
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    backgroundColor: colors.primary,
-    padding: 14,
-    borderRadius: 8,
-    marginTop: 10,
-    width: '100%',
-    boxShadow: '0px 2px 3.84px rgba(0, 0, 0, 0.25)',
-    elevation: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-});
