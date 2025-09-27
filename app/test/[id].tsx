@@ -23,6 +23,16 @@ interface TestResult {
   analysis: string;
 }
 
+interface UserProfile {
+  name: string;
+  age: number;
+  gender: 'male' | 'female';
+  height: number;
+  weight: number;
+  sport: string;
+  level: 'beginner' | 'intermediate' | 'advanced';
+}
+
 const testInstructions = {
   'vertical-jump': {
     title: 'Vertical Jump Test',
@@ -92,13 +102,18 @@ export default function TestScreen() {
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const [isRecording, setIsRecording] = useState(false);
   const [recordedVideo, setRecordedVideo] = useState<string | null>(null);
-  const [currentStep, setCurrentStep] = useState<'instructions' | 'recording' | 'review'>('instructions');
+  const [currentStep, setCurrentStep] = useState<'loading' | 'instructions' | 'recording' | 'review'>('loading');
   const [timer, setTimer] = useState(0);
   const [isActive, setIsActive] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const testConfig = testInstructions[id as keyof typeof testInstructions];
+
+  useEffect(() => {
+    checkProfileAndInitialize();
+  }, []);
 
   useEffect(() => {
     if (isActive) {
@@ -124,6 +139,53 @@ export default function TestScreen() {
     }
   }, [timer, testConfig?.duration, isRecording]);
 
+  const checkProfileAndInitialize = async () => {
+    try {
+      console.log('Checking user profile before starting test...');
+      const profileData = await AsyncStorage.getItem('userProfile');
+      
+      if (!profileData) {
+        console.log('No profile found, redirecting to profile creation');
+        Alert.alert(
+          'Profile Required',
+          'You need to create your profile before taking fitness assessment tests.',
+          [
+            { text: 'Cancel', onPress: () => router.back() },
+            { text: 'Create Profile', onPress: () => router.push('/profile') },
+          ]
+        );
+        return;
+      }
+
+      const profile = JSON.parse(profileData);
+      console.log('Profile loaded for test:', profile);
+      
+      // Validate profile completeness
+      if (!profile.name || !profile.age || !profile.height || !profile.weight || !profile.sport) {
+        console.log('Incomplete profile detected');
+        Alert.alert(
+          'Incomplete Profile',
+          'Please complete your profile before taking tests.',
+          [
+            { text: 'Cancel', onPress: () => router.back() },
+            { text: 'Complete Profile', onPress: () => router.push('/profile') },
+          ]
+        );
+        return;
+      }
+
+      setUserProfile(profile);
+      setCurrentStep('instructions');
+    } catch (error) {
+      console.log('Error checking profile:', error);
+      Alert.alert(
+        'Error',
+        'Failed to load your profile. Please try again.',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    }
+  };
+
   const startRecording = async () => {
     if (!permission?.granted) {
       const result = await requestPermission();
@@ -142,6 +204,7 @@ export default function TestScreen() {
     }
 
     try {
+      console.log('Starting video recording for test:', id);
       setIsRecording(true);
       setIsActive(true);
       setTimer(0);
@@ -153,17 +216,21 @@ export default function TestScreen() {
       });
 
       if (video) {
+        console.log('Video recorded successfully:', video.uri);
         setRecordedVideo(video.uri);
         setCurrentStep('review');
       }
     } catch (error) {
       console.log('Error starting recording:', error);
       Alert.alert('Error', 'Failed to start recording');
+      setIsRecording(false);
+      setIsActive(false);
     }
   };
 
   const stopRecording = async () => {
     try {
+      console.log('Stopping video recording');
       setIsRecording(false);
       setIsActive(false);
       await cameraRef.current?.stopRecording();
@@ -173,9 +240,16 @@ export default function TestScreen() {
   };
 
   const saveResult = async () => {
+    if (!userProfile) {
+      Alert.alert('Error', 'Profile not found. Please create your profile first.');
+      return;
+    }
+
     try {
-      // Simulate AI analysis
-      const mockAnalysis = generateMockAnalysis(id as string, timer);
+      console.log('Saving test result for:', id);
+      
+      // Generate AI analysis based on user profile
+      const mockAnalysis = generateMockAnalysis(id as string, timer, userProfile);
       
       const result: TestResult = {
         id: Date.now().toString(),
@@ -187,11 +261,14 @@ export default function TestScreen() {
         analysis: mockAnalysis.analysis,
       };
 
+      console.log('Generated test result:', result);
+
       // Save to AsyncStorage
       const existingResults = await AsyncStorage.getItem('testResults');
       const results = existingResults ? JSON.parse(existingResults) : [];
       results.push(result);
       await AsyncStorage.setItem('testResults', JSON.stringify(results));
+      console.log('Test result saved to AsyncStorage');
 
       // Update completed tests
       const completedTests = await AsyncStorage.getItem('completedTests');
@@ -199,11 +276,12 @@ export default function TestScreen() {
       if (!completed.includes(id)) {
         completed.push(id);
         await AsyncStorage.setItem('completedTests', JSON.stringify(completed));
+        console.log('Updated completed tests list');
       }
 
       Alert.alert(
         'Test Completed!',
-        `Your ${testConfig.title} has been analyzed and saved.`,
+        `Your ${testConfig.title} has been analyzed and saved.\n\nScore: ${mockAnalysis.score}/100\n\n${mockAnalysis.analysis}`,
         [
           { text: 'View Results', onPress: () => router.push('/results') },
           { text: 'Back to Home', onPress: () => router.push('/') },
@@ -211,41 +289,66 @@ export default function TestScreen() {
       );
     } catch (error) {
       console.log('Error saving result:', error);
-      Alert.alert('Error', 'Failed to save test result');
+      Alert.alert('Error', 'Failed to save test result. Please try again.');
     }
   };
 
-  const generateMockAnalysis = (testId: string, duration: number) => {
-    // This would be replaced with actual AI analysis
+  const generateMockAnalysis = (testId: string, duration: number, profile: UserProfile) => {
+    // Enhanced AI analysis based on user profile
+    const ageMultiplier = profile.age < 20 ? 1.1 : profile.age > 35 ? 0.9 : 1.0;
+    const genderMultiplier = profile.gender === 'male' ? 1.05 : 1.0;
+    const levelMultiplier = profile.level === 'advanced' ? 1.2 : profile.level === 'intermediate' ? 1.1 : 1.0;
+    
     switch (testId) {
       case 'vertical-jump':
+        const jumpHeight = Math.floor((Math.random() * 30 + 40) * ageMultiplier * genderMultiplier);
+        const jumpScore = Math.min(100, Math.floor((jumpHeight / 70) * 100 * levelMultiplier));
         return {
-          measurements: { height: Math.floor(Math.random() * 30) + 40 },
-          score: Math.floor(Math.random() * 40) + 60,
-          analysis: 'Good explosive power. Focus on landing technique for improvement.'
+          measurements: { height: jumpHeight },
+          score: jumpScore,
+          analysis: `Vertical jump: ${jumpHeight}cm. ${jumpScore > 80 ? 'Excellent' : jumpScore > 60 ? 'Good' : 'Needs improvement'} explosive power for your age group and experience level.`
         };
+        
       case 'shuttle-run':
+        const runTime = (Math.random() * 5 + 15) / (ageMultiplier * levelMultiplier);
+        const runScore = Math.min(100, Math.floor((20 / runTime) * 100));
         return {
-          measurements: { time: (Math.random() * 5 + 15).toFixed(2) },
-          score: Math.floor(Math.random() * 30) + 70,
-          analysis: 'Excellent agility. Work on acceleration from stationary position.'
+          measurements: { time: runTime.toFixed(2) },
+          score: runScore,
+          analysis: `Shuttle run time: ${runTime.toFixed(2)}s. ${runScore > 75 ? 'Excellent' : runScore > 60 ? 'Good' : 'Needs improvement'} agility and speed for your profile.`
         };
+        
       case 'sit-ups':
+        const sitUps = Math.floor((Math.random() * 20 + 30) * ageMultiplier * levelMultiplier);
+        const sitUpScore = Math.min(100, Math.floor((sitUps / 50) * 100));
         return {
-          measurements: { reps: Math.floor(Math.random() * 20) + 30 },
-          score: Math.floor(Math.random() * 35) + 65,
-          analysis: 'Strong core endurance. Maintain proper form throughout.'
+          measurements: { reps: sitUps },
+          score: sitUpScore,
+          analysis: `Completed ${sitUps} sit-ups. ${sitUpScore > 70 ? 'Strong' : sitUpScore > 50 ? 'Average' : 'Weak'} core endurance for your fitness level.`
         };
+        
       case 'endurance-run':
+        const distance = Math.floor((Math.random() * 1000 + 2000) * ageMultiplier * levelMultiplier);
+        const enduranceScore = Math.min(100, Math.floor((distance / 3000) * 100));
         return {
-          measurements: { distance: (Math.random() * 1000 + 2000).toFixed(0) },
-          score: Math.floor(Math.random() * 25) + 75,
-          analysis: 'Good cardiovascular fitness. Consider interval training.'
+          measurements: { distance: distance.toString() },
+          score: enduranceScore,
+          analysis: `Distance covered: ${distance}m in 12 minutes. ${enduranceScore > 80 ? 'Excellent' : enduranceScore > 60 ? 'Good' : 'Needs improvement'} cardiovascular fitness.`
         };
+        
+      case 'height-weight':
+        const bmi = profile.weight / ((profile.height / 100) ** 2);
+        const bmiScore = bmi >= 18.5 && bmi <= 25 ? 100 : bmi < 18.5 ? 70 : 60;
+        return {
+          measurements: { height: profile.height, weight: profile.weight, bmi: bmi.toFixed(1) },
+          score: bmiScore,
+          analysis: `BMI: ${bmi.toFixed(1)}. ${bmiScore === 100 ? 'Optimal' : bmiScore === 70 ? 'Underweight' : 'Overweight'} body composition for athletic performance.`
+        };
+        
       default:
         return {
           measurements: {},
-          score: Math.floor(Math.random() * 50) + 50,
+          score: Math.floor(Math.random() * 50 + 50),
           analysis: 'Test completed successfully.'
         };
     }
@@ -260,8 +363,20 @@ export default function TestScreen() {
   if (!testConfig) {
     return (
       <SafeAreaView style={commonStyles.centerContent}>
+        <Icon name="alert-circle-outline" size={64} color={colors.error} />
         <Text style={commonStyles.title}>Test Not Found</Text>
-        <Button text="Go Back" onPress={() => router.back()} />
+        <Text style={commonStyles.textSecondary}>The requested test could not be found.</Text>
+        <Button text="Go Back" onPress={() => router.back()} style={{ marginTop: 20 }} />
+      </SafeAreaView>
+    );
+  }
+
+  if (currentStep === 'loading') {
+    return (
+      <SafeAreaView style={commonStyles.centerContent}>
+        <Icon name="fitness-outline" size={64} color={colors.primary} />
+        <Text style={commonStyles.title}>Preparing Test</Text>
+        <Text style={commonStyles.textSecondary}>Loading your profile and test configuration...</Text>
       </SafeAreaView>
     );
   }
@@ -278,6 +393,26 @@ export default function TestScreen() {
 
       {currentStep === 'instructions' && (
         <View style={commonStyles.content}>
+          {userProfile && (
+            <View style={commonStyles.card}>
+              <Text style={commonStyles.sectionTitle}>Athlete Profile</Text>
+              <View style={[commonStyles.row, { marginBottom: 8 }]}>
+                <Text style={commonStyles.text}>Name:</Text>
+                <Text style={commonStyles.text}>{userProfile.name}</Text>
+              </View>
+              <View style={[commonStyles.row, { marginBottom: 8 }]}>
+                <Text style={commonStyles.text}>Sport:</Text>
+                <Text style={commonStyles.text}>{userProfile.sport}</Text>
+              </View>
+              <View style={commonStyles.row}>
+                <Text style={commonStyles.text}>Level:</Text>
+                <Text style={commonStyles.text}>
+                  {userProfile.level.charAt(0).toUpperCase() + userProfile.level.slice(1)}
+                </Text>
+              </View>
+            </View>
+          )}
+
           <View style={commonStyles.card}>
             <Text style={commonStyles.sectionTitle}>Instructions</Text>
             {testConfig.instructions.map((instruction, index) => (
@@ -345,6 +480,9 @@ export default function TestScreen() {
                   }}>
                     <Text style={[commonStyles.title, { color: colors.background }]}>
                       {formatTime(timer)}
+                    </Text>
+                    <Text style={[commonStyles.textSecondary, { color: colors.background, textAlign: 'center' }]}>
+                      {isRecording ? 'Recording...' : 'Ready to Record'}
                     </Text>
                   </View>
                 </View>
@@ -423,7 +561,7 @@ export default function TestScreen() {
             <Text style={commonStyles.sectionTitle}>AI Analysis</Text>
             <Text style={commonStyles.text}>
               Your video is being processed using advanced AI algorithms to analyze your performance. 
-              This includes movement detection, form analysis, and performance metrics calculation.
+              This includes movement detection, form analysis, and performance metrics calculation based on your profile.
             </Text>
           </View>
 

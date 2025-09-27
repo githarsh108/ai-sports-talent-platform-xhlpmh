@@ -38,6 +38,8 @@ export default function ProfileScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [showSportPicker, setShowSportPicker] = useState(false);
   const [showLevelPicker, setShowLevelPicker] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -45,46 +47,96 @@ export default function ProfileScreen() {
 
   const loadProfile = async () => {
     try {
+      console.log('Loading profile from AsyncStorage...');
+      setIsLoading(true);
       const profileData = await AsyncStorage.getItem('userProfile');
+      console.log('Profile data retrieved:', profileData);
+      
       if (profileData) {
-        setProfile(JSON.parse(profileData));
+        const parsedProfile = JSON.parse(profileData);
+        console.log('Parsed profile:', parsedProfile);
+        setProfile(parsedProfile);
+        setIsEditing(false);
       } else {
+        console.log('No profile found, enabling edit mode');
         setIsEditing(true);
       }
     } catch (error) {
       console.log('Error loading profile:', error);
+      Alert.alert('Error', 'Failed to load profile data');
       setIsEditing(true);
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  const validateProfile = () => {
+    console.log('Validating profile:', profile);
+    
+    if (!profile.name || profile.name.trim().length < 2) {
+      Alert.alert('Validation Error', 'Please enter a valid name (at least 2 characters)');
+      return false;
+    }
+
+    if (!profile.age || profile.age < 10 || profile.age > 50) {
+      Alert.alert('Validation Error', 'Age must be between 10 and 50 years');
+      return false;
+    }
+
+    if (!profile.height || profile.height < 100 || profile.height > 250) {
+      Alert.alert('Validation Error', 'Height must be between 100 and 250 cm');
+      return false;
+    }
+
+    if (!profile.weight || profile.weight < 30 || profile.weight > 150) {
+      Alert.alert('Validation Error', 'Weight must be between 30 and 150 kg');
+      return false;
+    }
+
+    if (!profile.sport || profile.sport.trim().length === 0) {
+      Alert.alert('Validation Error', 'Please select your primary sport');
+      return false;
+    }
+
+    return true;
+  };
+
   const saveProfile = async () => {
-    if (!profile.name || !profile.age || !profile.height || !profile.weight || !profile.sport) {
-      Alert.alert('Error', 'Please fill in all required fields');
-      return;
-    }
-
-    if (profile.age < 10 || profile.age > 50) {
-      Alert.alert('Error', 'Age must be between 10 and 50 years');
-      return;
-    }
-
-    if (profile.height < 100 || profile.height > 250) {
-      Alert.alert('Error', 'Height must be between 100 and 250 cm');
-      return;
-    }
-
-    if (profile.weight < 30 || profile.weight > 150) {
-      Alert.alert('Error', 'Weight must be between 30 and 150 kg');
+    if (!validateProfile()) {
       return;
     }
 
     try {
-      await AsyncStorage.setItem('userProfile', JSON.stringify(profile));
+      console.log('Saving profile:', profile);
+      setIsSaving(true);
+      
+      // Clean the profile data
+      const cleanProfile = {
+        ...profile,
+        name: profile.name.trim(),
+        sport: profile.sport.trim(),
+      };
+
+      await AsyncStorage.setItem('userProfile', JSON.stringify(cleanProfile));
+      console.log('Profile saved successfully');
+      
+      // Verify the save by reading it back
+      const savedProfile = await AsyncStorage.getItem('userProfile');
+      console.log('Verification - saved profile:', savedProfile);
+      
+      setProfile(cleanProfile);
       setIsEditing(false);
-      Alert.alert('Success', 'Profile saved successfully!');
+      
+      Alert.alert(
+        'Success', 
+        'Profile saved successfully! You can now take fitness assessment tests.',
+        [{ text: 'OK', onPress: () => console.log('Profile save confirmed') }]
+      );
     } catch (error) {
       console.log('Error saving profile:', error);
-      Alert.alert('Error', 'Failed to save profile');
+      Alert.alert('Error', 'Failed to save profile. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -104,6 +156,15 @@ export default function ProfileScreen() {
     return { category: 'Obese', color: colors.error };
   };
 
+  if (isLoading) {
+    return (
+      <SafeAreaView style={commonStyles.centerContent}>
+        <Icon name="person-outline" size={64} color={colors.textSecondary} />
+        <Text style={commonStyles.title}>Loading Profile...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={commonStyles.container}>
       <View style={commonStyles.header}>
@@ -111,8 +172,15 @@ export default function ProfileScreen() {
           <Icon name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={commonStyles.headerTitle}>Profile</Text>
-        <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
-          <Icon name={isEditing ? "close" : "create"} size={24} color={colors.primary} />
+        <TouchableOpacity 
+          onPress={() => setIsEditing(!isEditing)}
+          disabled={isSaving}
+        >
+          <Icon 
+            name={isEditing ? "close" : "create"} 
+            size={24} 
+            color={isSaving ? colors.textSecondary : colors.primary} 
+          />
         </TouchableOpacity>
       </View>
 
@@ -134,6 +202,11 @@ export default function ProfileScreen() {
               <Text style={commonStyles.textSecondary}>
                 {profile.sport || 'Select your sport'}
               </Text>
+              {profile.name && (
+                <View style={[commonStyles.badge, { marginTop: 8 }]}>
+                  <Text style={commonStyles.badgeText}>Profile Complete</Text>
+                </View>
+              )}
             </View>
           </View>
 
@@ -174,6 +247,7 @@ export default function ProfileScreen() {
                   onChangeText={(text) => setProfile({ ...profile, name: text })}
                   placeholder="Enter your full name"
                   placeholderTextColor={colors.textSecondary}
+                  editable={!isSaving}
                 />
               </View>
 
@@ -183,10 +257,14 @@ export default function ProfileScreen() {
                   <TextInput
                     style={commonStyles.input}
                     value={profile.age ? profile.age.toString() : ''}
-                    onChangeText={(text) => setProfile({ ...profile, age: parseInt(text) || 0 })}
+                    onChangeText={(text) => {
+                      const age = parseInt(text) || 0;
+                      setProfile({ ...profile, age });
+                    }}
                     placeholder="Age"
                     keyboardType="numeric"
                     placeholderTextColor={colors.textSecondary}
+                    editable={!isSaving}
                   />
                 </View>
                 <View style={{ flex: 1, marginLeft: 8 }}>
@@ -199,6 +277,7 @@ export default function ProfileScreen() {
                         profile.gender === 'male' && { backgroundColor: colors.primary }
                       ]}
                       onPress={() => setProfile({ ...profile, gender: 'male' })}
+                      disabled={isSaving}
                     >
                       <Text style={[
                         buttonStyles.outlineText,
@@ -212,6 +291,7 @@ export default function ProfileScreen() {
                         profile.gender === 'female' && { backgroundColor: colors.primary }
                       ]}
                       onPress={() => setProfile({ ...profile, gender: 'female' })}
+                      disabled={isSaving}
                     >
                       <Text style={[
                         buttonStyles.outlineText,
@@ -228,10 +308,14 @@ export default function ProfileScreen() {
                   <TextInput
                     style={commonStyles.input}
                     value={profile.height ? profile.height.toString() : ''}
-                    onChangeText={(text) => setProfile({ ...profile, height: parseInt(text) || 0 })}
+                    onChangeText={(text) => {
+                      const height = parseInt(text) || 0;
+                      setProfile({ ...profile, height });
+                    }}
                     placeholder="Height"
                     keyboardType="numeric"
                     placeholderTextColor={colors.textSecondary}
+                    editable={!isSaving}
                   />
                 </View>
                 <View style={{ flex: 1, marginLeft: 8 }}>
@@ -239,10 +323,14 @@ export default function ProfileScreen() {
                   <TextInput
                     style={commonStyles.input}
                     value={profile.weight ? profile.weight.toString() : ''}
-                    onChangeText={(text) => setProfile({ ...profile, weight: parseInt(text) || 0 })}
+                    onChangeText={(text) => {
+                      const weight = parseInt(text) || 0;
+                      setProfile({ ...profile, weight });
+                    }}
                     placeholder="Weight"
                     keyboardType="numeric"
                     placeholderTextColor={colors.textSecondary}
+                    editable={!isSaving}
                   />
                 </View>
               </View>
@@ -255,7 +343,8 @@ export default function ProfileScreen() {
                 <Text style={[commonStyles.text, { marginBottom: 8 }]}>Primary Sport *</Text>
                 <TouchableOpacity
                   style={commonStyles.input}
-                  onPress={() => setShowSportPicker(!showSportPicker)}
+                  onPress={() => !isSaving && setShowSportPicker(!showSportPicker)}
+                  disabled={isSaving}
                 >
                   <Text style={[commonStyles.text, !profile.sport && { color: colors.textSecondary }]}>
                     {profile.sport || 'Select your sport'}
@@ -267,11 +356,16 @@ export default function ProfileScreen() {
                     {sports.map((sport) => (
                       <TouchableOpacity
                         key={sport}
-                        style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                        style={{ 
+                          paddingVertical: 12, 
+                          borderBottomWidth: 1, 
+                          borderBottomColor: colors.border 
+                        }}
                         onPress={() => {
                           setProfile({ ...profile, sport });
                           setShowSportPicker(false);
                         }}
+                        disabled={isSaving}
                       >
                         <Text style={commonStyles.text}>{sport}</Text>
                       </TouchableOpacity>
@@ -292,6 +386,7 @@ export default function ProfileScreen() {
                         profile.level === level && { backgroundColor: colors.primary }
                       ]}
                       onPress={() => setProfile({ ...profile, level: level as any })}
+                      disabled={isSaving}
                     >
                       <Text style={[
                         buttonStyles.outlineText,
@@ -307,9 +402,10 @@ export default function ProfileScreen() {
             </View>
 
             <Button
-              text="Save Profile"
+              text={isSaving ? "Saving Profile..." : "Save Profile"}
               onPress={saveProfile}
               style={{ marginBottom: 20 }}
+              disabled={isSaving}
             />
           </View>
         ) : (
@@ -348,6 +444,20 @@ export default function ProfileScreen() {
                   {profile.level.charAt(0).toUpperCase() + profile.level.slice(1)}
                 </Text>
               </View>
+            </View>
+
+            <View style={commonStyles.card}>
+              <View style={[commonStyles.row, { marginBottom: 12 }]}>
+                <Icon name="checkmark-circle" size={24} color={colors.success} />
+                <Text style={[commonStyles.text, { marginLeft: 12 }]}>
+                  Profile Complete - Ready for Assessment Tests
+                </Text>
+              </View>
+              <Button
+                text="Start Fitness Tests"
+                onPress={() => router.push('/')}
+                style={{ backgroundColor: colors.success }}
+              />
             </View>
           </View>
         )}

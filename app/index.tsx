@@ -64,6 +64,7 @@ const fitnessTests = [
 export default function HomeScreen() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [completedTests, setCompletedTests] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     loadUserData();
@@ -71,23 +72,40 @@ export default function HomeScreen() {
 
   const loadUserData = async () => {
     try {
+      console.log('Loading user data...');
+      setIsLoading(true);
+      
       const profileData = await AsyncStorage.getItem('userProfile');
       const testsData = await AsyncStorage.getItem('completedTests');
       
+      console.log('Profile data:', profileData);
+      console.log('Completed tests:', testsData);
+      
       if (profileData) {
-        setUserProfile(JSON.parse(profileData));
+        const profile = JSON.parse(profileData);
+        console.log('Parsed profile:', profile);
+        setUserProfile(profile);
       }
       
       if (testsData) {
-        setCompletedTests(JSON.parse(testsData));
+        const completed = JSON.parse(testsData);
+        console.log('Parsed completed tests:', completed);
+        setCompletedTests(completed);
       }
     } catch (error) {
       console.log('Error loading user data:', error);
+      Alert.alert('Error', 'Failed to load user data');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleTestPress = (testId: string) => {
+    console.log('Test pressed:', testId);
+    console.log('Current profile:', userProfile);
+    
     if (!userProfile) {
+      console.log('No profile found, showing alert');
       Alert.alert(
         'Profile Required',
         'Please create your profile first to start assessments.',
@@ -99,6 +117,21 @@ export default function HomeScreen() {
       return;
     }
 
+    // Validate profile completeness
+    if (!userProfile.name || !userProfile.age || !userProfile.height || !userProfile.weight || !userProfile.sport) {
+      console.log('Incomplete profile detected');
+      Alert.alert(
+        'Incomplete Profile',
+        'Please complete your profile before taking tests.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Complete Profile', onPress: () => router.push('/profile') },
+        ]
+      );
+      return;
+    }
+
+    console.log('Profile is complete, navigating to test:', testId);
     router.push(`/test/${testId}`);
   };
 
@@ -114,6 +147,16 @@ export default function HomeScreen() {
   const getProgressPercentage = () => {
     return Math.round((completedTests.length / fitnessTests.length) * 100);
   };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={commonStyles.centerContent}>
+        <Icon name="fitness-outline" size={64} color={colors.primary} />
+        <Text style={commonStyles.title}>SAI Talent Scout</Text>
+        <Text style={commonStyles.textSecondary}>Loading your data...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={commonStyles.container}>
@@ -132,13 +175,13 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView style={commonStyles.content} showsVerticalScrollIndicator={false}>
-        {userProfile && (
+        {userProfile ? (
           <View style={commonStyles.card}>
             <View style={commonStyles.row}>
               <View>
                 <Text style={commonStyles.subtitle}>Welcome back, {userProfile.name}!</Text>
                 <Text style={commonStyles.textSecondary}>
-                  Progress: {getProgressPercentage()}% Complete
+                  Progress: {getProgressPercentage()}% Complete ({completedTests.length}/{fitnessTests.length} tests)
                 </Text>
               </View>
               <View style={commonStyles.badge}>
@@ -161,6 +204,23 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
+        ) : (
+          <View style={commonStyles.card}>
+            <View style={[commonStyles.row, { alignItems: 'flex-start' }]}>
+              <Icon name="person-add-outline" size={48} color={colors.primary} />
+              <View style={{ flex: 1, marginLeft: 16 }}>
+                <Text style={commonStyles.subtitle}>Create Your Profile</Text>
+                <Text style={commonStyles.textSecondary}>
+                  Set up your athlete profile to start taking fitness assessment tests and track your progress.
+                </Text>
+                <Button
+                  text="Create Profile"
+                  onPress={() => router.push('/profile')}
+                  style={{ marginTop: 12, alignSelf: 'flex-start' }}
+                />
+              </View>
+            </View>
+          </View>
         )}
 
         <View style={commonStyles.section}>
@@ -172,15 +232,18 @@ export default function HomeScreen() {
 
         {fitnessTests.map((test) => {
           const isCompleted = completedTests.includes(test.id);
+          const canTakeTest = userProfile && userProfile.name && userProfile.age && userProfile.height && userProfile.weight && userProfile.sport;
           
           return (
             <TouchableOpacity
               key={test.id}
               style={[
                 commonStyles.card,
-                isCompleted && { borderColor: colors.success, borderWidth: 2 }
+                isCompleted && { borderColor: colors.success, borderWidth: 2 },
+                !canTakeTest && { opacity: 0.6 }
               ]}
               onPress={() => handleTestPress(test.id)}
+              disabled={!canTakeTest}
             >
               <View style={commonStyles.row}>
                 <Icon 
@@ -206,6 +269,11 @@ export default function HomeScreen() {
                     <Text style={[commonStyles.textSecondary, { marginLeft: 12 }]}>
                       {test.duration}
                     </Text>
+                    {!canTakeTest && (
+                      <Text style={[commonStyles.textSecondary, { marginLeft: 12, fontStyle: 'italic' }]}>
+                        Profile required
+                      </Text>
+                    )}
                   </View>
                 </View>
               </View>
