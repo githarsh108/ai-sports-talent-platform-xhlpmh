@@ -351,7 +351,7 @@ class VideoAnalysisService {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `fitness_${testId}_${timestamp}.mp4`;
       
-      // Copy to a permanent location
+      // Copy to a permanent location using the correct property
       const permanentUri = `${FileSystem.documentDirectory}${filename}`;
       await FileSystem.copyAsync({
         from: videoUri,
