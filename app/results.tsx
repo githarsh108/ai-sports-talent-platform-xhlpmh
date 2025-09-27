@@ -19,6 +19,10 @@ interface TestResult {
   measurements: any;
   score: number;
   analysis: string;
+  confidence?: number;
+  detectedMovements?: string[];
+  formFeedback?: string[];
+  uploadStatus?: 'pending' | 'uploaded' | 'failed';
 }
 
 interface UserProfile {
@@ -31,25 +35,12 @@ interface UserProfile {
   level: 'beginner' | 'intermediate' | 'advanced';
 }
 
-const testNames = {
-  'vertical-jump': 'Vertical Jump',
-  'shuttle-run': 'Shuttle Run',
-  'sit-ups': 'Sit-ups',
-  'endurance-run': 'Endurance Run',
-  'height-weight': 'Height & Weight',
-};
-
 const DonutChart = ({ score, size = 120 }: { score: number; size?: number }) => {
-  const radius = (size - 20) / 2;
-  const circumference = 2 * Math.PI * radius;
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = radius * 2 * Math.PI;
   const strokeDasharray = circumference;
   const strokeDashoffset = circumference - (score / 100) * circumference;
-
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return colors.success;
-    if (score >= 60) return colors.warning;
-    return colors.error;
-  };
 
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
@@ -59,7 +50,7 @@ const DonutChart = ({ score, size = 120 }: { score: number; size?: number }) => 
           cy={size / 2}
           r={radius}
           stroke={colors.border}
-          strokeWidth="8"
+          strokeWidth={strokeWidth}
           fill="transparent"
         />
         <Circle
@@ -67,7 +58,7 @@ const DonutChart = ({ score, size = 120 }: { score: number; size?: number }) => 
           cy={size / 2}
           r={radius}
           stroke={getScoreColor(score)}
-          strokeWidth="8"
+          strokeWidth={strokeWidth}
           fill="transparent"
           strokeDasharray={strokeDasharray}
           strokeDashoffset={strokeDashoffset}
@@ -75,26 +66,28 @@ const DonutChart = ({ score, size = 120 }: { score: number; size?: number }) => 
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </Svg>
-      <View style={{
-        position: 'absolute',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
+      <View style={{ position: 'absolute', alignItems: 'center' }}>
         <Text style={[commonStyles.title, { fontSize: 24, color: getScoreColor(score) }]}>
           {score}
         </Text>
         <Text style={[commonStyles.textSecondary, { fontSize: 12 }]}>
-          SCORE
+          /100
         </Text>
       </View>
     </View>
   );
 };
 
+const getScoreColor = (score: number) => {
+  if (score >= 80) return colors.success;
+  if (score >= 60) return colors.warning;
+  return colors.error;
+};
+
 export default function ResultsScreen() {
   const [results, setResults] = useState<TestResult[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'detailed'>('overview');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadData();
@@ -102,18 +95,29 @@ export default function ResultsScreen() {
 
   const loadData = async () => {
     try {
-      const resultsData = await AsyncStorage.getItem('testResults');
-      const profileData = await AsyncStorage.getItem('userProfile');
+      console.log('Loading results and profile data...');
       
+      const [resultsData, profileData] = await Promise.all([
+        AsyncStorage.getItem('testResults'),
+        AsyncStorage.getItem('userProfile')
+      ]);
+
       if (resultsData) {
-        setResults(JSON.parse(resultsData));
+        const parsedResults = JSON.parse(resultsData);
+        console.log('Loaded test results:', parsedResults);
+        setResults(parsedResults);
       }
-      
+
       if (profileData) {
-        setProfile(JSON.parse(profileData));
+        const parsedProfile = JSON.parse(profileData);
+        console.log('Loaded user profile:', parsedProfile);
+        setProfile(parsedProfile);
       }
+
+      setLoading(false);
     } catch (error) {
       console.log('Error loading data:', error);
+      setLoading(false);
     }
   };
 
@@ -124,10 +128,11 @@ export default function ResultsScreen() {
   };
 
   const getPerformanceLevel = (score: number) => {
-    if (score >= 85) return { level: 'Elite', color: colors.success };
-    if (score >= 70) return { level: 'Advanced', color: colors.primary };
-    if (score >= 55) return { level: 'Intermediate', color: colors.warning };
-    return { level: 'Beginner', color: colors.error };
+    if (score >= 90) return 'Outstanding';
+    if (score >= 80) return 'Excellent';
+    if (score >= 70) return 'Good';
+    if (score >= 60) return 'Average';
+    return 'Needs Improvement';
   };
 
   const getRecommendations = () => {
@@ -136,60 +141,82 @@ export default function ResultsScreen() {
 
     if (overallScore < 60) {
       recommendations.push('Focus on basic fitness fundamentals');
-      recommendations.push('Increase training frequency to 4-5 times per week');
+      recommendations.push('Increase training frequency');
+      recommendations.push('Work with a fitness coach');
     } else if (overallScore < 80) {
-      recommendations.push('Work on sport-specific skills');
-      recommendations.push('Consider strength and conditioning programs');
+      recommendations.push('Target specific weak areas');
+      recommendations.push('Increase training intensity');
+      recommendations.push('Add sport-specific drills');
     } else {
-      recommendations.push('Maintain current training intensity');
+      recommendations.push('Maintain current training level');
       recommendations.push('Focus on competition preparation');
-    }
-
-    // Add specific recommendations based on lowest scoring tests
-    const sortedResults = [...results].sort((a, b) => a.score - b.score);
-    if (sortedResults.length > 0) {
-      const weakestTest = sortedResults[0];
-      if (weakestTest.testId === 'vertical-jump') {
-        recommendations.push('Include plyometric exercises in training');
-      } else if (weakestTest.testId === 'endurance-run') {
-        recommendations.push('Increase cardiovascular training volume');
-      } else if (weakestTest.testId === 'sit-ups') {
-        recommendations.push('Focus on core strengthening exercises');
-      }
+      recommendations.push('Consider advanced training techniques');
     }
 
     return recommendations;
   };
 
-  if (results.length === 0) {
-    return (
-      <SafeAreaView style={commonStyles.container}>
-        <View style={commonStyles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Icon name="arrow-back" size={24} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={commonStyles.headerTitle}>Results</Text>
-          <View style={{ width: 24 }} />
-        </View>
+  const getTestName = (testId: string) => {
+    const testNames = {
+      'vertical-jump': 'Vertical Jump',
+      'shuttle-run': 'Shuttle Run',
+      'sit-ups': 'Sit-ups',
+      'endurance-run': 'Endurance Run',
+      'height-weight': 'Height & Weight'
+    };
+    return testNames[testId as keyof typeof testNames] || testId;
+  };
 
-        <View style={commonStyles.centerContent}>
-          <Icon name="analytics-outline" size={64} color={colors.textSecondary} />
-          <Text style={commonStyles.title}>No Results Yet</Text>
-          <Text style={commonStyles.textSecondary}>
-            Complete some fitness tests to see your results and analysis
-          </Text>
-          <Button
-            text="Start Testing"
-            onPress={() => router.push('/')}
-            style={{ marginTop: 20 }}
-          />
-        </View>
+  const getUploadStatusIcon = (status?: string) => {
+    switch (status) {
+      case 'uploaded':
+        return <Icon name="cloud-done-outline" size={16} color={colors.success} />;
+      case 'failed':
+        return <Icon name="cloud-offline-outline" size={16} color={colors.error} />;
+      case 'pending':
+      default:
+        return <Icon name="cloud-upload-outline" size={16} color={colors.warning} />;
+    }
+  };
+
+  const getUploadStatusText = (status?: string) => {
+    switch (status) {
+      case 'uploaded':
+        return 'Uploaded to SAI';
+      case 'failed':
+        return 'Upload Failed';
+      case 'pending':
+      default:
+        return 'Upload Pending';
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={commonStyles.centerContent}>
+        <Icon name="analytics-outline" size={64} color={colors.primary} />
+        <Text style={commonStyles.title}>Loading Results</Text>
+        <Text style={commonStyles.textSecondary}>Analyzing your performance data...</Text>
       </SafeAreaView>
     );
   }
 
-  const overallScore = getOverallScore();
-  const performanceLevel = getPerformanceLevel(overallScore);
+  if (results.length === 0) {
+    return (
+      <SafeAreaView style={commonStyles.centerContent}>
+        <Icon name="bar-chart-outline" size={64} color={colors.textSecondary} />
+        <Text style={commonStyles.title}>No Results Yet</Text>
+        <Text style={commonStyles.textSecondary}>
+          Complete some fitness assessment tests to see your results here.
+        </Text>
+        <Button
+          text="Take a Test"
+          onPress={() => router.push('/')}
+          style={{ marginTop: 20 }}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={commonStyles.container}>
@@ -197,143 +224,140 @@ export default function ResultsScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <Icon name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={commonStyles.headerTitle}>Results & Analytics</Text>
+        <Text style={commonStyles.headerTitle}>Results</Text>
         <TouchableOpacity onPress={() => router.push('/export')}>
-          <Icon name="share-outline" size={24} color={colors.primary} />
+          <Icon name="share-outline" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
 
-      <View style={[commonStyles.row, { paddingHorizontal: 20, marginBottom: 16 }]}>
-        <TouchableOpacity
-          style={[
-            { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 8 },
-            selectedTab === 'overview' && { backgroundColor: colors.primary }
-          ]}
-          onPress={() => setSelectedTab('overview')}
-        >
-          <Text style={[
-            commonStyles.text,
-            selectedTab === 'overview' && { color: colors.background, fontWeight: '600' }
-          ]}>
-            Overview
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 8 },
-            selectedTab === 'detailed' && { backgroundColor: colors.primary }
-          ]}
-          onPress={() => setSelectedTab('detailed')}
-        >
-          <Text style={[
-            commonStyles.text,
-            selectedTab === 'detailed' && { color: colors.background, fontWeight: '600' }
-          ]}>
-            Detailed
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={commonStyles.content} showsVerticalScrollIndicator={false}>
-        {selectedTab === 'overview' && (
-          <View>
-            <View style={commonStyles.card}>
-              <Text style={commonStyles.sectionTitle}>Overall Performance</Text>
-              <View style={[commonStyles.row, { marginTop: 16 }]}>
-                <DonutChart score={overallScore} size={100} />
-                <View style={{ flex: 1, marginLeft: 20 }}>
-                  <Text style={[commonStyles.subtitle, { color: performanceLevel.color }]}>
-                    {performanceLevel.level}
-                  </Text>
-                  <Text style={commonStyles.textSecondary}>Performance Level</Text>
-                  <View style={{ marginTop: 12 }}>
-                    <Text style={commonStyles.text}>Tests Completed</Text>
-                    <Text style={commonStyles.subtitle}>{results.length}/5</Text>
-                  </View>
-                </View>
+      <ScrollView style={commonStyles.content}>
+        {profile && (
+          <View style={commonStyles.card}>
+            <Text style={commonStyles.sectionTitle}>Performance Overview</Text>
+            <View style={commonStyles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={commonStyles.text}>{profile.name}</Text>
+                <Text style={commonStyles.textSecondary}>{profile.sport} • {profile.level}</Text>
+                <Text style={[commonStyles.text, { marginTop: 8 }]}>
+                  Overall Score: {getPerformanceLevel(getOverallScore())}
+                </Text>
+                <Text style={commonStyles.textSecondary}>
+                  Based on {results.length} test{results.length !== 1 ? 's' : ''}
+                </Text>
               </View>
-            </View>
-
-            <View style={commonStyles.card}>
-              <Text style={commonStyles.sectionTitle}>Test Scores</Text>
-              {results.map((result) => (
-                <View key={result.id} style={[commonStyles.row, { marginBottom: 12 }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={commonStyles.text}>
-                      {testNames[result.testId as keyof typeof testNames]}
-                    </Text>
-                    <Text style={commonStyles.textSecondary}>
-                      {new Date(result.timestamp).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <View style={[commonStyles.center, { minWidth: 60 }]}>
-                    <Text style={[
-                      commonStyles.subtitle,
-                      { color: result.score >= 70 ? colors.success : colors.warning }
-                    ]}>
-                      {result.score}
-                    </Text>
-                    <Text style={commonStyles.textSecondary}>Score</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-
-            <View style={commonStyles.card}>
-              <Text style={commonStyles.sectionTitle}>Recommendations</Text>
-              {getRecommendations().map((recommendation, index) => (
-                <View key={index} style={[commonStyles.row, { marginBottom: 8, alignItems: 'flex-start' }]}>
-                  <Icon name="checkmark-circle" size={16} color={colors.primary} style={{ marginTop: 2 }} />
-                  <Text style={[commonStyles.text, { flex: 1, marginLeft: 8 }]}>
-                    {recommendation}
-                  </Text>
-                </View>
-              ))}
+              <DonutChart score={getOverallScore()} />
             </View>
           </View>
         )}
 
-        {selectedTab === 'detailed' && (
-          <View>
-            {results.map((result) => (
-              <View key={result.id} style={commonStyles.card}>
-                <View style={[commonStyles.row, { marginBottom: 12 }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={commonStyles.subtitle}>
-                      {testNames[result.testId as keyof typeof testNames]}
-                    </Text>
-                    <Text style={commonStyles.textSecondary}>
-                      {new Date(result.timestamp).toLocaleDateString()} at{' '}
-                      {new Date(result.timestamp).toLocaleTimeString()}
-                    </Text>
-                  </View>
-                  <DonutChart score={result.score} size={60} />
-                </View>
-
-                <View style={commonStyles.divider} />
-
-                <Text style={[commonStyles.text, { fontWeight: '600', marginBottom: 8 }]}>
-                  Measurements
+        <View style={commonStyles.card}>
+          <Text style={commonStyles.sectionTitle}>Test Results</Text>
+          {results.map((result, index) => (
+            <View key={result.id} style={[
+              commonStyles.row,
+              { 
+                marginBottom: index < results.length - 1 ? 16 : 0,
+                alignItems: 'flex-start',
+                paddingBottom: index < results.length - 1 ? 16 : 0,
+                borderBottomWidth: index < results.length - 1 ? 1 : 0,
+                borderBottomColor: colors.border
+              }
+            ]}>
+              <View style={{ flex: 1 }}>
+                <Text style={commonStyles.text}>{getTestName(result.testId)}</Text>
+                <Text style={commonStyles.textSecondary}>
+                  {new Date(result.timestamp).toLocaleDateString()}
                 </Text>
-                {Object.entries(result.measurements).map(([key, value]) => (
-                  <View key={key} style={[commonStyles.row, { marginBottom: 4 }]}>
-                    <Text style={commonStyles.textSecondary}>
-                      {key.charAt(0).toUpperCase() + key.slice(1)}:
-                    </Text>
-                    <Text style={commonStyles.text}>{value}</Text>
+                {result.confidence && (
+                  <Text style={[commonStyles.textSecondary, { fontSize: 12 }]}>
+                    AI Confidence: {result.confidence}%
+                  </Text>
+                )}
+                <View style={[commonStyles.row, { marginTop: 4, alignItems: 'center' }]}>
+                  {getUploadStatusIcon(result.uploadStatus)}
+                  <Text style={[commonStyles.textSecondary, { fontSize: 12, marginLeft: 4 }]}>
+                    {getUploadStatusText(result.uploadStatus)}
+                  </Text>
+                </View>
+              </View>
+              <View style={commonStyles.center}>
+                <DonutChart score={result.score} size={60} />
+              </View>
+            </View>
+          ))}
+        </View>
+
+        {results.some(r => r.detectedMovements && r.detectedMovements.length > 0) && (
+          <View style={commonStyles.card}>
+            <Text style={commonStyles.sectionTitle}>AI Analysis Summary</Text>
+            <Text style={commonStyles.text}>
+              Advanced AI has analyzed your movements and provided detailed feedback:
+            </Text>
+            {results.filter(r => r.detectedMovements && r.detectedMovements.length > 0).map((result, index) => (
+              <View key={result.id} style={{ marginTop: 12 }}>
+                <Text style={[commonStyles.text, { fontWeight: '600' }]}>
+                  {getTestName(result.testId)}
+                </Text>
+                {result.detectedMovements?.slice(0, 2).map((movement, idx) => (
+                  <View key={idx} style={[commonStyles.row, { marginTop: 4, alignItems: 'flex-start' }]}>
+                    <Icon name="checkmark-circle" size={14} color={colors.success} style={{ marginRight: 6, marginTop: 2 }} />
+                    <Text style={[commonStyles.textSecondary, { flex: 1, fontSize: 13 }]}>{movement}</Text>
                   </View>
                 ))}
-
-                <Text style={[commonStyles.text, { fontWeight: '600', marginTop: 12, marginBottom: 8 }]}>
-                  Analysis
-                </Text>
-                <Text style={commonStyles.text}>{result.analysis}</Text>
               </View>
             ))}
           </View>
         )}
 
-        <View style={{ height: 40 }} />
+        <View style={commonStyles.card}>
+          <Text style={commonStyles.sectionTitle}>Recommendations</Text>
+          {getRecommendations().map((recommendation, index) => (
+            <View key={index} style={[commonStyles.row, { marginBottom: 8, alignItems: 'flex-start' }]}>
+              <Icon name="bulb-outline" size={16} color={colors.warning} style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={[commonStyles.textSecondary, { flex: 1 }]}>{recommendation}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={commonStyles.card}>
+          <Text style={commonStyles.sectionTitle}>Data Upload Status</Text>
+          <Text style={commonStyles.text}>
+            Your test data is being securely transmitted to the Sports Authority of India (SAI) for official evaluation.
+          </Text>
+          <View style={{ marginTop: 12 }}>
+            <View style={[commonStyles.row, { marginBottom: 8 }]}>
+              <Text style={commonStyles.textSecondary}>Uploaded:</Text>
+              <Text style={[commonStyles.text, { color: colors.success }]}>
+                {results.filter(r => r.uploadStatus === 'uploaded').length}
+              </Text>
+            </View>
+            <View style={[commonStyles.row, { marginBottom: 8 }]}>
+              <Text style={commonStyles.textSecondary}>Pending:</Text>
+              <Text style={[commonStyles.text, { color: colors.warning }]}>
+                {results.filter(r => r.uploadStatus === 'pending' || !r.uploadStatus).length}
+              </Text>
+            </View>
+            <View style={commonStyles.row}>
+              <Text style={commonStyles.textSecondary}>Failed:</Text>
+              <Text style={[commonStyles.text, { color: colors.error }]}>
+                {results.filter(r => r.uploadStatus === 'failed').length}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={[commonStyles.row, { marginTop: 20, marginBottom: 40 }]}>
+          <Button
+            text="Export Report"
+            onPress={() => router.push('/export')}
+            style={{ flex: 1, marginRight: 8 }}
+          />
+          <Button
+            text="Take More Tests"
+            onPress={() => router.push('/')}
+            style={[{ flex: 1, marginLeft: 8 }, { backgroundColor: colors.secondary }]}
+          />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
